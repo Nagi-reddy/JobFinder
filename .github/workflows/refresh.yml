@@ -1,0 +1,31 @@
+name: Refresh jobs
+
+on:
+  schedule:
+    - cron: "*/20 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - run: pip install requests
+
+      - run: python3 fetch_jobs.py
+
+      - name: Commit and push jobs.json if it changed
+        run: |
+          git config user.name "job-finder-bot"
+          git config user.email "bot@users.noreply.github.com"
+          git add jobs.json
+          git diff --cached --quiet && echo "No changes - skipping commit" || git commit -m "Refresh jobs $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          git push
