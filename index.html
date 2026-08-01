@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Job Finder</title>
+<style>
+  :root {
+    --border: #e2e2e2;
+    --text: #1a1a1a;
+    --muted: #6b6b6b;
+    --bg: #ffffff;
+    --row-alt: #fafafa;
+    --accent: #1f4e78;
+    --saved: #b7791f;
+    --applied: #1a7f37;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+    color: var(--text);
+    background: var(--bg);
+    margin: 0;
+    padding: 24px;
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+  h1 {
+    font-size: 20px;
+    font-weight: 600;
+    margin: 8px 0 4px;
+  }
+  .subtitle {
+    color: var(--muted);
+    font-size: 13px;
+    margin-bottom: 20px;
+  }
+  .controls {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 16px;
+  }
+  .controls input, .controls select {
+    padding: 7px 10px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 13px;
+    background: var(--bg);
+    color: var(--text);
+  }
+  .controls input[type="text"] {
+    flex: 1;
+    min-width: 180px;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+  thead th {
+    text-align: left;
+    padding: 8px 10px;
+    border-bottom: 2px solid var(--border);
+    color: var(--muted);
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  tbody td {
+    padding: 9px 10px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: middle;
+  }
+  tbody tr:nth-child(even) { background: var(--row-alt); }
+  tbody tr.status-applied { opacity: 0.55; }
+  .company { font-weight: 500; }
+  .tag {
+    display: inline-block;
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: #eef2f7;
+    color: var(--accent);
+    margin-left: 6px;
+    white-space: nowrap;
+  }
+  a.apply {
+    color: var(--accent);
+    text-decoration: none;
+    font-weight: 500;
+  }
+  a.apply:hover { text-decoration: underline; }
+  .status-btns { display: flex; gap: 4px; }
+  button.status-btn {
+    font-size: 11px;
+    padding: 4px 8px;
+    border-radius: 5px;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    cursor: pointer;
+    color: var(--muted);
+  }
+  button.status-btn.active-save { background: #fff6e5; border-color: var(--saved); color: var(--saved); }
+  button.status-btn.active-applied { background: #eafaf0; border-color: var(--applied); color: var(--applied); }
+  .tag.level-entry { background: #eafaf0; color: #1a7f37; }
+  .tag.level-mid { background: #eef2f7; color: #1f4e78; }
+  .tag.level-senior { background: #fff6e5; color: #b7791f; }
+  .tag.level-staff { background: #fbe9e9; color: #a3342d; }
+  .empty, .loading {
+    padding: 40px 0;
+    text-align: center;
+    color: var(--muted);
+    font-size: 13px;
+  }
+  .meta-bar {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    color: var(--muted);
+    margin: 10px 0 4px;
+  }
+  code {
+    background: #f2f2f2;
+    padding: 1px 4px;
+    border-radius: 3px;
+  }
+</style>
+</head>
+<body>
+
+<h1>Job Finder</h1>
+<div class="subtitle">US-only postings, pulled directly from company career sites (Greenhouse, Lever, Ashby, SmartRecruiters, Workday) — no LinkedIn/Indeed. Schedule to run every 20 min (see README) and this page picks up new data automatically.</div>
+
+<div class="controls">
+  <input type="text" id="search" placeholder="Search title or company...">
+  <select id="categoryFilter">
+    <option value="">All categories</option>
+  </select>
+  <select id="sourceFilter">
+    <option value="">All sources</option>
+  </select>
+  <select id="statusFilter">
+    <option value="">All statuses</option>
+    <option value="new">New</option>
+    <option value="saved">Saved</option>
+    <option value="applied">Applied</option>
+  </select>
+  <select id="expFilter">
+    <option value="">All levels</option>
+    <option value="Entry (0-2 yrs)">Entry (0-2 yrs)</option>
+    <option value="Mid (2-4 yrs)">Mid (2-4 yrs)</option>
+    <option value="Senior (4-7 yrs)">Senior (4-7 yrs)</option>
+    <option value="Staff+ (7+ yrs)">Staff+ (7+ yrs)</option>
+  </select>
+</div>
+
+<div class="meta-bar">
+  <span id="resultCount"></span>
+  <span id="generatedAt"></span>
+</div>
+
+<table>
+  <thead>
+    <tr>
+      <th data-sort="company">Company</th>
+      <th data-sort="title">Role</th>
+      <th data-sort="experience_level">Level</th>
+      <th data-sort="posted_date">Posted</th>
+      <th>Apply</th>
+      <th>Status</th>
+    </tr>
+  </thead>
+  <tbody id="jobRows">
+    <tr><td colspan="6" class="loading">Loading jobs.json...</td></tr>
+  </tbody>
+</table>
+
+<script>
+const STORAGE_KEY = "jobfinder_status_v1";
+
+let jobs = [];
+let sortKey = "posted_date";
+let sortDir = -1;
+
+function loadStatuses() {
+  try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || {}; }
+  catch (e) { return {}; }
+}
+function saveStatuses(map) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(map));
+}
+function getStatus(link) {
+  const map = loadStatuses();
+  return map[link] || "new";
+}
+function setStatus(link, status) {
+  const map = loadStatuses();
+  if (status === "new") delete map[link];
+  else map[link] = status;
+  saveStatuses(map);
+}
+
+function populateFilters() {
+  const cats = [...new Set(jobs.map(j => j.category))].sort();
+  const sources = [...new Set(jobs.map(j => j.source))].sort();
+  const catSel = document.getElementById("categoryFilter");
+  const srcSel = document.getElementById("sourceFilter");
+  const prevCat = catSel.value;
+  const prevSrc = srcSel.value;
+
+  catSel.innerHTML = '<option value="">All categories</option>';
+  cats.forEach(c => {
+    const o = document.createElement("option");
+    o.value = c; o.textContent = c;
+    catSel.appendChild(o);
+  });
+
+  srcSel.innerHTML = '<option value="">All sources</option>';
+  sources.forEach(s => {
+    const o = document.createElement("option");
+    o.value = s; o.textContent = s;
+    srcSel.appendChild(o);
+  });
+
+  // preserve whatever the user had selected across a background refresh
+  if ([...catSel.options].some(o => o.value === prevCat)) catSel.value = prevCat;
+  if ([...srcSel.options].some(o => o.value === prevSrc)) srcSel.value = prevSrc;
+}
+
+function levelClass(level) {
+  if (level === "Entry (0-2 yrs)") return "level-entry";
+  if (level === "Mid (2-4 yrs)") return "level-mid";
+  if (level === "Senior (4-7 yrs)") return "level-senior";
+  if (level === "Staff+ (7+ yrs)") return "level-staff";
+  return "";
+}
+
+function render() {
+  const q = document.getElementById("search").value.trim().toLowerCase();
+  const cat = document.getElementById("categoryFilter").value;
+  const src = document.getElementById("sourceFilter").value;
+  const statusFilter = document.getElementById("statusFilter").value;
+  const expFilter = document.getElementById("expFilter").value;
+
+  let filtered = jobs.filter(j => {
+    if (q && !(j.title.toLowerCase().includes(q) || j.company.toLowerCase().includes(q))) return false;
+    if (cat && j.category !== cat) return false;
+    if (src && j.source !== src) return false;
+    if (statusFilter && getStatus(j.apply_link) !== statusFilter) return false;
+    if (expFilter && (j.experience_level || "Mid (2-4 yrs)") !== expFilter) return false;
+    return true;
+  });
+
+  filtered.sort((a, b) => {
+    let av = a[sortKey] || "", bv = b[sortKey] || "";
+    if (av < bv) return -1 * sortDir;
+    if (av > bv) return 1 * sortDir;
+    return 0;
+  });
+
+  const tbody = document.getElementById("jobRows");
+  tbody.innerHTML = "";
+  document.getElementById("resultCount").textContent = `${filtered.length} of ${jobs.length} jobs`;
+
+  if (filtered.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="6" class="empty">No jobs match your filters.</td></tr>';
+    return;
+  }
+
+  filtered.forEach(j => {
+    const status = getStatus(j.apply_link);
+    const level = j.experience_level || "Mid (2-4 yrs)";
+    const tr = document.createElement("tr");
+    if (status === "applied") tr.classList.add("status-applied");
+
+    tr.innerHTML = `
+      <td class="company">${escapeHtml(j.company)}<span class="tag">${escapeHtml(j.category)}</span></td>
+      <td>${escapeHtml(j.title)}</td>
+      <td><span class="tag ${levelClass(level)}">${escapeHtml(level)}</span></td>
+      <td>${escapeHtml(formatDate(j.posted_date))}</td>
+      <td><a class="apply" href="${escapeHtml(j.apply_link)}" target="_blank" rel="noopener">Apply →</a></td>
+      <td>
+        <div class="status-btns">
+          <button class="status-btn ${status === 'saved' ? 'active-save' : ''}" data-action="saved">Save</button>
+          <button class="status-btn ${status === 'applied' ? 'active-applied' : ''}" data-action="applied">Applied</button>
+        </div>
+      </td>
+    `;
+
+    tr.querySelectorAll(".status-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const action = btn.dataset.action;
+        const current = getStatus(j.apply_link);
+        setStatus(j.apply_link, current === action ? "new" : action);
+        render();
+      });
+    });
+
+    tbody.appendChild(tr);
+  });
+}
+
+function escapeHtml(str) {
+  return String(str).replace(/[&<>"']/g, s => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+  }[s]));
+}
+
+function formatDate(iso) {
+  if (!iso) return "-";
+  // posted_date is a full ISO timestamp where the source ATS provides one
+  // (used for precise sorting); just show the date part here.
+  return iso.slice(0, 10);
+}
+
+document.querySelectorAll("th[data-sort]").forEach(th => {
+  th.addEventListener("click", () => {
+    const key = th.dataset.sort;
+    if (sortKey === key) sortDir *= -1;
+    else { sortKey = key; sortDir = -1; }
+    render();
+  });
+});
+
+["search", "categoryFilter", "sourceFilter", "statusFilter", "expFilter"].forEach(id => {
+  document.getElementById(id).addEventListener("input", render);
+  document.getElementById(id).addEventListener("change", render);
+});
+
+const REFRESH_MS = 20 * 60 * 1000; // 20 minutes - matches how often fetch_jobs.py should be scheduled
+
+function loadJobs() {
+  fetch("jobs.json?_=" + Date.now())
+    .then(r => {
+      if (!r.ok) throw new Error("jobs.json not found");
+      return r.json();
+    })
+    .then(data => {
+      jobs = data.jobs || [];
+      document.getElementById("generatedAt").textContent =
+        "Data last generated: " + new Date(data.generated_at).toLocaleString() +
+        " · page checks for new data every 20 min";
+      populateFilters();
+      render();
+    })
+    .catch(err => {
+      document.getElementById("jobRows").innerHTML =
+        `<tr><td colspan="6" class="empty">Couldn't load jobs.json (${escapeHtml(err.message)}).<br>
+        Run <code>python fetch_jobs.py</code> first, and serve this folder with
+        <code>python -m http.server</code> instead of opening the file directly
+        (browsers block fetch() on file:// URLs).</td></tr>`;
+    });
+}
+
+loadJobs();
+setInterval(loadJobs, REFRESH_MS);
+</script>
+
+</body>
+</html>
